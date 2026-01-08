@@ -2,7 +2,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:arcore_flutter_plugin/arcore_flutter_plugin.dart';
 import 'package:vector_math/vector_math_64.dart' as vm;
+import '../constants/ar_constants.dart';
 import '../utils/measurement_utils.dart';
+import '../widgets/ar_overlay_widgets.dart';
 
 class ARRulerAndroid extends StatefulWidget {
   const ARRulerAndroid({super.key});
@@ -23,7 +25,7 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
   double? _distance;
 
   // 상태
-  String _statusMessage = '평면을 찾는 중...';
+  MeasurementState _measurementState = MeasurementState.searching;
 
   @override
   void dispose() {
@@ -39,13 +41,13 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
     _arCoreController!.onPlaneDetected = _onPlaneDetected;
 
     setState(() {
-      _statusMessage = '평면을 찾는 중... 핸드폰을 천천히 움직이세요';
+      _measurementState = MeasurementState.scanning;
     });
   }
 
   void _onPlaneDetected(ArCorePlane plane) {
     setState(() {
-      _statusMessage = '평면 감지됨! 측정할 첫 번째 점을 탭하세요';
+      _measurementState = MeasurementState.planeDetected;
     });
   }
 
@@ -70,21 +72,27 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
     }
 
     _points.add(position);
-    _addSphere(position, _points.length == 1 ? Colors.green : Colors.red);
+    _addSphere(
+      position,
+      _points.length == 1
+          ? ARConstants.startPointColor
+          : ARConstants.endPointColor,
+    );
 
     if (_points.length == 2) {
       // 두 점이 찍혔으면 거리 계산
-      final distance = MeasurementUtils.calculate3DDistance(_points[0], _points[1]);
+      final distance =
+          MeasurementUtils.calculate3DDistance(_points[0], _points[1]);
       setState(() {
         _distance = distance;
-        _statusMessage = '측정 완료! 다시 탭하면 새로 측정';
+        _measurementState = MeasurementState.measurementComplete;
       });
 
       // 선 그리기
       _drawLine();
     } else {
       setState(() {
-        _statusMessage = '두 번째 점을 탭하세요';
+        _measurementState = MeasurementState.firstPointSet;
       });
     }
   }
@@ -92,11 +100,11 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
   void _addSphere(vm.Vector3 position, Color color) {
     final material = ArCoreMaterial(
       color: color,
-      metallic: 0.5,
+      metallic: ARConstants.metallic,
     );
 
     final sphere = ArCoreSphere(
-      radius: 0.01, // 1cm 크기의 구
+      radius: ARConstants.sphereRadius,
       materials: [material],
     );
 
@@ -113,8 +121,8 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
     if (_points.length < 2) return;
 
     final material = ArCoreMaterial(
-      color: Colors.red,
-      metallic: 0.5,
+      color: ARConstants.lineColor,
+      metallic: ARConstants.metallic,
     );
 
     // 두 점 사이의 거리와 방향 계산
@@ -124,7 +132,7 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
 
     // 실린더로 선 표현
     final line = ArCoreCylinder(
-      radius: 0.002, // 2mm 두께
+      radius: ARConstants.lineRadius,
       height: distance,
       materials: [material],
     );
@@ -152,7 +160,8 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
     final yaw = math.atan2(direction.x, direction.z);
 
     // Y축 방향 각도
-    final horizontalDistance = math.sqrt(direction.x * direction.x + direction.z * direction.z);
+    final horizontalDistance =
+        math.sqrt(direction.x * direction.x + direction.z * direction.z);
     final pitch = math.atan2(direction.y, horizontalDistance);
 
     // Euler 각도를 Quaternion으로 변환
@@ -177,24 +186,14 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
     _points.clear();
     setState(() {
       _distance = null;
-      _statusMessage = '첫 번째 점을 탭하세요';
+      _measurementState = MeasurementState.readyToMeasure;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('📏 AR 줄자'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _clearMeasurement,
-            tooltip: '초기화',
-          ),
-        ],
-      ),
+      appBar: ARRulerAppBar(onReset: _clearMeasurement),
       body: Stack(
         children: [
           // AR 뷰
@@ -204,91 +203,14 @@ class _ARRulerAndroidState extends State<ARRulerAndroid> {
             enablePlaneRenderer: true,
           ),
           // 상단 상태 메시지
-          Positioned(
-            top: 16,
-            left: 16,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.black54,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                _statusMessage,
-                style: const TextStyle(color: Colors.white, fontSize: 16),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
+          StatusMessageOverlay(message: _measurementState.message),
           // 하단 측정 결과
           if (_distance != null)
-            Positioned(
-              bottom: 100,
-              left: 16,
-              right: 16,
-              child: Container(
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.amber[100],
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.2),
-                      blurRadius: 10,
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      '${MeasurementUtils.metersToCm(_distance!).toStringAsFixed(2)} cm',
-                      style: const TextStyle(
-                        fontSize: 36,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      '${MeasurementUtils.metersToMm(_distance!).toStringAsFixed(1)} mm  |  '
-                      '${MeasurementUtils.metersToInch(_distance!).toStringAsFixed(2)} inch',
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey[700],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+            MeasurementResultOverlay(distanceInMeters: _distance!),
           // 사용법 안내
-          Positioned(
-            bottom: 16,
-            left: 16,
-            right: 16,
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.9),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Text(
-                '평면 위의 두 점을 탭하여 거리를 측정하세요',
-                style: TextStyle(fontSize: 14),
-                textAlign: TextAlign.center,
-              ),
-            ),
-          ),
+          const InstructionOverlay(),
           // 조준점 (화면 중앙)
-          const Center(
-            child: Icon(
-              Icons.add_circle_outline,
-              color: Colors.white,
-              size: 40,
-            ),
-          ),
+          const CrosshairOverlay(),
         ],
       ),
     );
