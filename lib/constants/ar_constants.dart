@@ -21,6 +21,16 @@ class ARConstants {
   static const double metallic = 0.5;
 }
 
+/// 평면 감지 모드
+enum PlaneDetectionMode {
+  horizontal('수평면'),
+  vertical('수직면'),
+  both('모든 평면');
+
+  final String label;
+  const PlaneDetectionMode(this.label);
+}
+
 /// 측정 상태를 나타내는 enum
 enum MeasurementState {
   searching('평면을 찾는 중...'),
